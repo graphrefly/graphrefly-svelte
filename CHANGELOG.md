@@ -1,4 +1,4 @@
-# @graphrefly/react
+# @graphrefly/svelte
 
 ## 0.1.0
 

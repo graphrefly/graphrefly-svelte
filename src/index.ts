@@ -1,71 +1,50 @@
-// @graphrefly/react — reactive binding + presentation layer for GraphReFly.
-// TS owns framework-neutral store bindings and boundary manifests; React owns hooks and UI.
+import type { Node } from "@graphrefly/ts";
+import {
+	nodeSnapshot,
+	recordReadableStore,
+	subscribeNodeValues,
+	type WritableNode,
+} from "@graphrefly/ts/adapters";
+import { type Readable, readable } from "svelte/store";
 
-export type {
-	BoundaryCapabilityKind,
-	BoundaryCapabilityRef,
-	BoundaryManifest,
-	BoundaryNode,
-	BoundaryRole,
-	InputBoundaryNode,
-	OutputBoundaryNode,
-} from "@graphrefly/ts/inspection/boundary";
-export { boundaryManifest } from "@graphrefly/ts/inspection/boundary";
-export type {
-	A2UIBoundaryCapability,
-	A2UIBoundaryCapabilityDataModel,
-	A2UIBoundaryCapabilityDataModelEntry,
-	A2UIBoundaryCapabilityDataModelOptions,
-	A2UIBoundaryCapabilityDataModelUpdateMessage,
-	A2UIBoundaryDataModel,
-	A2UIBoundaryDataModelEntry,
-	A2UIBoundaryDataModelOptions,
-	A2UIBoundaryValue,
-	A2UICapabilityAdmission,
-	A2UICapabilityResolution,
-	A2UICapabilityResolver,
-	A2UICapabilityResolverContext,
-	A2UICapabilityStatus,
-	A2UIJsonValue,
-	A2UIUpdateDataModelMessage,
-	A2UIVersion,
-} from "./a2ui.js";
-export {
-	A2UI_VERSION,
-	boundaryManifestToA2UICapabilityDataModel,
-	boundaryManifestToA2UICapabilityDataModelUpdate,
-	boundaryManifestToA2UIDataModel,
-	boundaryManifestToA2UIDataModelUpdate,
-	useA2UIBoundaryDataModel,
-	useA2UIBoundaryDataModelUpdate,
-} from "./a2ui.js";
-export type {
-	AutoPanelCapabilityRenderer,
-	AutoPanelCapabilityResolution,
-	AutoPanelCapabilityResolver,
-	AutoPanelCapabilityResolverContext,
-	AutoPanelCapabilityStatus,
-	AutoPanelCapabilityViewProps,
-	AutoPanelInputSetter,
-	AutoPanelInputWidget,
-	AutoPanelInputWidgetKey,
-	AutoPanelInputWidgetProps,
-	AutoPanelOutputWidget,
-	AutoPanelOutputWidgetKey,
-	AutoPanelOutputWidgetProps,
-	AutoPanelProps,
-	AutoPanelWidgetCatalog,
-	AutoPanelWidgetResolver,
-	AutoPanelWidgetResolverContext,
-} from "./auto-panel.js";
-export { AutoPanel } from "./auto-panel.js";
-export type {
-	TopologyFlowEdge,
-	TopologyFlowNode,
-	TopologyFlowPanelProps,
-} from "./topology-flow.js";
-export { TopologyFlowPanel } from "./topology-flow.js";
-export { useBoundaryManifest } from "./use-boundary-manifest.js";
-export { useNodeInput, useNodeRecord, useNodeValue } from "./use-node.js";
+export interface NodeWritable<T> extends Readable<T | undefined> {
+	set(value: T): void;
+	update(fn: (value: T | undefined) => T): void;
+}
 
-export const VERSION = "0.0.0";
+export function nodeReadable<T>(node: Node<T>): Readable<T | undefined> {
+	return readable<T | undefined>(nodeSnapshot(node), (set) =>
+		subscribeNodeValues(node, set, { immediate: true }),
+	);
+}
+
+function assertDataValue(value: unknown): void {
+	if (value === undefined) {
+		throw new TypeError("nodeWritable: undefined is SENTINEL/no DATA, not a writable DATA value");
+	}
+}
+
+export function nodeWritable<T>(node: WritableNode<T>): NodeWritable<T> {
+	const store = nodeReadable(node);
+	return {
+		subscribe: store.subscribe,
+		set(value) {
+			assertDataValue(value);
+			node.set(value);
+		},
+		update(fn) {
+			const next = fn(nodeSnapshot(node));
+			assertDataValue(next);
+			node.set(next);
+		},
+	};
+}
+
+export function nodeRecord<K extends string, R extends Record<string, unknown>>(
+	keysNode: Node<readonly K[]>,
+	factory: (key: K) => { [P in keyof R]: Node<R[P]> },
+): Readable<Record<K, R>> {
+	const store = recordReadableStore(keysNode, factory);
+	const read = () => store.get() ?? ({} as Record<K, R>);
+	return readable(read(), (set) => store.subscribe((value) => set(value ?? ({} as Record<K, R>))));
+}
